@@ -1,0 +1,31 @@
+# OS / file manager noise
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Editor and IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+*.bak
+*.orig
+
+# MATLAB temporary and generated files
+*.asv
+*.m~
+*.mex*
+*.mat
+*.slxc
+*.autosave
+slprj/
+codegen/
+
+# Project data sets and generated outputs
+/Project/A. Segmentation/
+/Project/C. Localization/
+/Project/Figures/
+/Project/Results/
+/Project/od_segmentation_results.csv
+/Project/results.csv
