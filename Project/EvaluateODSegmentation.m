@@ -2,7 +2,7 @@
 % Calculates Precision, Recall, F-score for OD segmentation
 clear all; close all; clc;
 
-projectPath = 'c:\Users\Mert\Documents\Uni\İmage Processing\Project';
+projectPath = 'C:\Users\cagda\OneDrive\Desktop\Image-Processing\Project';
 segTrainPath = fullfile(projectPath, 'A. Segmentation\1. Original Images\a. Training Set');
 odGTPath = fullfile(projectPath, 'A. Segmentation\2. All Segmentation Groundtruths\a. Training Set\5. Optic Disc');
 

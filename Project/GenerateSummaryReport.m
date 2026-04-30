@@ -2,7 +2,7 @@
 % Consolidates all results and creates a summary table
 clear all; close all; clc;
 
-projectPath = 'c:\Users\Mert\Documents\Uni\İmage Processing\Project';
+projectPath = fileparts(mfilename('fullpath'));
 outputPath = fullfile(projectPath, 'Results');
 
 if ~isdir(outputPath)

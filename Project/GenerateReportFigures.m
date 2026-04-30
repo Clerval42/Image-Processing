@@ -2,7 +2,7 @@
 % Creates visualization of preprocessing, detection, and segmentation
 clear all; close all; clc;
 
-projectPath = 'c:\Users\Mert\Documents\Uni\İmage Processing\Project';
+projectPath = fileparts(mfilename('fullpath'));
 segTrainPath = fullfile(projectPath, 'A. Segmentation\1. Original Images\a. Training Set');
 odGTPath = fullfile(projectPath, 'A. Segmentation\2. All Segmentation Groundtruths\a. Training Set\5. Optic Disc');
 outputPath = fullfile(projectPath, 'Figures');

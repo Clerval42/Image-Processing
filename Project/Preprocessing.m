@@ -3,12 +3,21 @@
 clear all; close all; clc;
 
 % Set up paths
-projectPath = 'c:\Users\Mert\Documents\Uni\İmage Processing\Project';
+projectPath = 'C:\Users\cagda\OneDrive\Desktop\Image-Processing\Project';
 segTrainPath = fullfile(projectPath, 'A. Segmentation\1. Original Images\a. Training Set');
 locTrainPath = fullfile(projectPath, 'C. Localization\1. Original Images\a. Training Set');
 odGTPath = fullfile(projectPath, 'A. Segmentation\2. All Segmentation Groundtruths\a. Training Set\5. Optic Disc');
 odCoordsPath = fullfile(projectPath, 'C. Localization\2. Groundtruths\1. Optic Disc Center Location\a. IDRiD_OD_Center_Training Set_Markups.csv');
 foveaCoordsPath = fullfile(projectPath, 'C. Localization\2. Groundtruths\2. Fovea Center Location\IDRiD_Fovea_Center_Training Set_Markups.csv');
+
+% Choose which images to use for localization evaluation
+useLocalizationImages = true;
+if useLocalizationImages
+    imageRoot = locTrainPath;
+else
+    imageRoot = segTrainPath;
+end
+useSegmentationGT = ~useLocalizationImages;
 
 % Read ground truth coordinates
 fprintf('Reading ground truth coordinates...\n');
@@ -19,11 +28,18 @@ foveaCoords = readtable(foveaCoordsPath, 'VariableNamingRule', 'preserve');
 odCoords = odCoords(:, 1:3);
 foveaCoords = foveaCoords(:, 1:3);
 
-% Get list of training images (segment part, 54 images)
-imageList = dir(fullfile(segTrainPath, 'IDRiD_*.jpg'));
+% Get list of images
+imageList = dir(fullfile(imageRoot, 'IDRiD_*.jpg'));
 numImages = length(imageList);
 
-fprintf('Found %d training images\n', numImages);
+if useLocalizationImages
+    fprintf('Found %d localization images\n', numImages);
+else
+    fprintf('Found %d segmentation images\n', numImages);
+end
+
+% Use the same fovea method as EvaluateLocalization
+useLegacyFovea = true;
 
 % Initialize metrics storage with pre-allocation
 ImageID = cell(numImages, 1);
@@ -49,12 +65,16 @@ for idx = 1:numImages
     % Pad to 3 digits for localization dataset (IDRiD_001, etc.)
     parts = strsplit(imageID, '_');
     imageNum = str2double(parts{2});
-    imageID_Loc = sprintf('IDRiD_%03d', imageNum);
+    if ~isnan(imageNum)
+        imageID_Loc = sprintf('IDRiD_%03d', imageNum);
+    else
+        imageID_Loc = imageID;
+    end
     
     fprintf('\n--- Processing %s (%d/%d) ---\n', imageID, idx, numImages);
     
     % Read original image
-    imgPath = fullfile(segTrainPath, imgFileName);
+    imgPath = fullfile(imageRoot, imgFileName);
     I = imread(imgPath);
     
     %% STEP 1: PREPROCESSING
@@ -64,21 +84,46 @@ for idx = 1:numImages
     [odCenter, odMask, odRadius] = detectOpticDisc(I_prep, I);
     
     %% STEP 3: FOVEA LOCALIZATION
-    foveaCenter = localizeFovea(I_prep, odCenter, odRadius);
-    
-    %% STEP 4: LOAD GROUND TRUTH
-    % Get OD ground truth coordinates
-    % Image ID in localization is "IDRiD_NNN" format (3 digits)
-    odRow = odCoords(strcmp(odCoords{:, 1}, imageID_Loc), :);
-    if ~isempty(odRow)
-        od_gt_x = odRow{1, 2};
-        od_gt_y = odRow{1, 3};
+    if useLegacyFovea
+        foveaCenter = localizeFovea(I_prep, odCenter, odRadius, I);
     else
-        od_gt_x = NaN;
-        od_gt_y = NaN;
+        foveaCenter = localizeFovea_Improved(I_prep, odCenter, odRadius);
     end
     
-    % Get Fovea ground truth coordinates
+    %% STEP 4: LOAD GROUND TRUTH
+    od_gt_x = NaN;
+    od_gt_y = NaN;
+    if useSegmentationGT
+        % Optik disk maskesinin (TIF dosyası) ismini oluştur (Örn: IDRiD_01_OD.tif)
+        gtFileName = sprintf('%s_OD.tif', imageID); 
+        gtPath = fullfile(odGTPath, gtFileName);
+        
+        % Eğer klasörde böyle bir maske dosyası varsa işlemlere başla
+        if isfile(gtPath)
+            % Maskeyi oku ve siyah-beyaz (mantıksal 1-0) formata çevir
+            BW_gt = imread(gtPath) > 0; 
+            
+            % Maskenin özelliklerini analiz et ve merkez (Centroid) noktasını bul
+            props_gt = regionprops(BW_gt, 'Centroid');
+            
+            % Eğer maske boş değilse (içinde optik disk çizilmişse) koordinatları al
+            if ~isempty(props_gt)
+                od_gt_x = props_gt.Centroid(1); % Gerçek X koordinatı
+                od_gt_y = props_gt.Centroid(2); % Gerçek Y koordinatı
+            end
+        end
+    end
+    
+    % Segmentasyon maskesi yoksa OD merkezini CSV'den yedekle
+    if isnan(od_gt_x) || isnan(od_gt_y)
+        odRow = odCoords(strcmp(odCoords{:, 1}, imageID_Loc), :);
+        if ~isempty(odRow)
+            od_gt_x = odRow{1, 2};
+            od_gt_y = odRow{1, 3};
+        end
+    end
+
+    % Fovea ground truth koordinatlarını lokalizasyon CSV'den al
     foveaRow = foveaCoords(strcmp(foveaCoords{:, 1}, imageID_Loc), :);
     if ~isempty(foveaRow)
         fovea_gt_x = foveaRow{1, 2};
@@ -187,64 +232,150 @@ function I_prep = preprocessImage(I)
 end
 
 %% Function: Detect Optic Disc
+% --- GÜNCELLENMİŞ OPTİK DİSK TESPİTİ ---
 function [odCenter, odMask, odRadius] = detectOpticDisc(I_prep, I_orig)
-    % Find brightest region (optic disc)
-    % Apply thresholding to find bright regions
-    threshold = prctile(I_prep(:), 90);
-    BW = I_prep > threshold;
+    % Adım 1: Kırmızı kanalı al (Optik disk kırmızı kanalda daha belirgindir)
+    I_red = I_orig(:, :, 1);
     
-    % Morphological closing to fill holes
-    SE = strel('disk', 15);
-    BW = imclose(BW, SE);
-    BW = imfill(BW, 'holes');
+    % Adım 2: FOV (Görüş Alanı) Maskesi oluştur. Siyah arkaplanı dışla.
+    % 15'ten büyük piksellerin göz yuvarlağına ait olduğunu varsayıyoruz.
+    fovMask = I_red > 15; 
     
-    % Find connected components
-    CC = bwconncomp(BW);
+    % Adım 3: Damarları ve lekeleri silmek için çok güçlü bulanıklaştırma uygula
+    H = fspecial('gaussian', [150 150], 50);
+    I_blur = imfilter(I_red, H, 'replicate');
     
-    % Get largest component (optic disc)
+    % Adım 4: Göz dışındaki siyah arkaplanın yanlışlıkla parlak algılanmasını önle
+    I_blur(~fovMask) = 0; 
+    
+    % Adım 5: Gözün içindeki en parlak noktayı bul (Burası büyük ihtimalle OD merkezidir)
+    [~, maxIdx] = max(I_blur(:));
+    [od_y, od_x] = ind2sub(size(I_blur), maxIdx);
+    odCenter = [od_x, od_y];
+    
+    % Adım 6: Sadece bulunan merkez etrafında küçük bir pencere (ROI) aç
+    [h, w] = size(I_red);
+    roi_size = 500; % IDRiD görselleri çok büyük, pencereyi genişlettik
+    
+    % Pencerenin resim sınırlarından taşmasını engelle
+    r_min = max(1, od_y - roi_size); r_max = min(h, od_y + roi_size);
+    c_min = max(1, od_x - roi_size); c_max = min(w, od_x + roi_size);
+    
+    % Pencereyi kes ve içindeki optik diski siyah/beyaz (binary) olarak ayır
+    ROI = I_prep(r_min:r_max, c_min:c_max);
+    level = graythresh(ROI);
+    BW_roi = imbinarize(ROI, level * 1.1); 
+    
+    % Adım 7: Şekil bozukluklarını düzelt (Morfolojik işlemler)
+    SE = strel('disk', 20);
+    BW_roi = imclose(BW_roi, SE);
+    BW_roi = imfill(BW_roi, 'holes');
+    
+    % Adım 8: Tespit edilen beyaz lekelerden sadece en büyük olanını (Optik diski) tut
+    CC = bwconncomp(BW_roi);
     if CC.NumObjects > 0
         sizes = cellfun(@numel, CC.PixelIdxList);
         [~, largestIdx] = max(sizes);
-        odMask = ismember(labelmatrix(CC), largestIdx);
+        roi_mask = ismember(labelmatrix(CC), largestIdx);
+        
+        props = regionprops(roi_mask, 'EquivDiameter');
+        odRadius = props(1).EquivDiameter / 2;
     else
-        odMask = BW;
+        roi_mask = false(size(ROI));
+        odRadius = 150; % Eğer disk bulunamazsa varsayılan güvenli bir çap ata
     end
     
-    % Find center of mass
-    props = regionprops(odMask, 'Centroid', 'EquivDiameter');
-    if ~isempty(props)
-        odCenter = props.Centroid;
-        odRadius = props.EquivDiameter / 2;
+    % Oluşturulan küçük maskeyi, tam boyutlu siyah bir maskenin içine doğru yere yerleştir
+    odMask = false(h, w);
+    odMask(r_min:r_max, c_min:c_max) = roi_mask;
+end
+
+%% Function: Localize Fovea (legacy)
+function foveaCenter = localizeFovea(~, odCenter, ~, I_orig)
+    I_green = I_orig(:, :, 2);
+    [h, w] = size(I_green);
+    
+    y_min = max(1, round(odCenter(2) - 600));
+    y_max = min(h, round(odCenter(2) + 600));
+    
+    if odCenter(1) < w / 2
+        x_min = min(w, round(odCenter(1) + 500));
+        x_max = min(w, round(odCenter(1) + 1800));
     else
-        % Fallback: use image center
-        [h, w] = size(I_prep);
-        odCenter = [w/2, h/2];
-        odRadius = min(h, w) / 6;
+        x_min = max(1, round(odCenter(1) - 1800));
+        x_max = max(1, round(odCenter(1) - 500));
     end
+    
+    margin = 200;
+    x_min = max(x_min, margin);
+    x_max = min(x_max, w - margin);
+    
+    if x_min >= x_max || y_min >= y_max
+        foveaCenter = [w/2, h/2];
+        return;
+    end
+    
+    searchRegion = I_green(y_min:y_max, x_min:x_max);
+    
+    H = fspecial('gaussian', [250 250], 80);
+    searchRegion_blur = imfilter(searchRegion, H, 'replicate');
+    
+    I_red_roi = I_orig(y_min:y_max, x_min:x_max, 1);
+    fovMask = I_red_roi > 45;
+    
+    SE_roi = strel('disk', 60);
+    fovMask = imerode(fovMask, SE_roi);
+    
+    searchRegion_blur(~fovMask) = 255;
+    
+    [~, minIdx] = min(searchRegion_blur(:));
+    [py_local, px_local] = ind2sub(size(searchRegion_blur), minIdx);
+    
+    foveaCenter = [px_local + x_min - 1, py_local + y_min - 1];
 end
 
 %% Function: Localize Fovea
-function foveaCenter = localizeFovea(I_prep, odCenter, odRadius)
-    % Anatomical constraint: fovea is ~2.5 OD diameters away from OD center
-    % Search in the lower-right region typically
+function foveaCenter = localizeFovea_Improved(I_prep, odCenter, odRadius)
+    % Improved fovea localization with better anatomical constraints
     
-    % Define search region (nasal side, approximately)
-    searchRadius = odRadius * 3;
-    
-    % Search area around OD center
     [h, w] = size(I_prep);
-    x_min = max(1, floor(odCenter(1) - searchRadius));
-    x_max = min(w, floor(odCenter(1) + searchRadius));
-    y_min = max(1, floor(odCenter(2) - searchRadius));
-    y_max = min(h, floor(odCenter(2) + searchRadius));
     
-    % Extract region
-    searchRegion = I_prep(y_min:y_max, x_min:x_max);
+    % Fovea location properties:
+    % 1. Located roughly 2.5-3 OD diameters from OD center (usually temporal/nasal)
+    % 2. On the main blood vessel-free zone
+    % 3. Usually below (higher Y) the OD center
     
-    % Find darkest region (fovea is darker)
-    [~, minIdx] = min(searchRegion(:));
+    % Create search region ROI:
+    % Search within a limited annulus around the OD
+    minSearchDist = odRadius * 1.5;  % At least 1.5 disc diameters away
+    maxSearchDist = odRadius * 3.5;  % No more than 3.5 disc diameters away
+    
+    % Create mask for search region
+    [X, Y] = meshgrid(1:w, 1:h);
+    distFromOD = sqrt((X - odCenter(1)).^2 + (Y - odCenter(2)).^2);
+    
+    searchMask = (distFromOD >= minSearchDist) & (distFromOD <= maxSearchDist);
+    
+    % Apply search region
+    searchRegion = I_prep;
+    searchRegion(~searchMask) = max(I_prep(:));  % Mask out non-search regions (set to bright)
+    
+    % Find darkest point in search region
+    [minVal, minIdx] = min(searchRegion(:));
     [py, px] = ind2sub(size(searchRegion), minIdx);
     
-    % Convert back to original coordinates
-    foveaCenter = [px + x_min - 1, py + y_min - 1];
+    foveaCenter = [px, py];
+    
+    % Validate: if fovea is too close to OD, expand search
+    foveaDist = sqrt((foveaCenter(1) - odCenter(1))^2 + (foveaCenter(2) - odCenter(2))^2);
+    if foveaDist < odRadius * 1.2
+        % Too close, search again with different strategy
+        % Look in bottom-right quadrant preferentially
+        bottomRightMask = (X > odCenter(1)) & (Y > odCenter(2)) & searchMask;
+        searchRegion2 = I_prep;
+        searchRegion2(~bottomRightMask) = max(I_prep(:));
+        [~, minIdx2] = min(searchRegion2(:));
+        [py2, px2] = ind2sub(size(searchRegion2), minIdx2);
+        foveaCenter = [px2, py2];
+    end
 end
