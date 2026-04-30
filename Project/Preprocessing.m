@@ -3,7 +3,8 @@
 clear all; close all; clc;
 
 % Set up paths
-projectPath = 'C:\Users\cagda\OneDrive\Desktop\Image-Processing\Project';
+projectPath = fileparts(mfilename('fullpath'));
+cd(projectPath);
 segTrainPath = fullfile(projectPath, 'A. Segmentation\1. Original Images\a. Training Set');
 locTrainPath = fullfile(projectPath, 'C. Localization\1. Original Images\a. Training Set');
 odGTPath = fullfile(projectPath, 'A. Segmentation\2. All Segmentation Groundtruths\a. Training Set\5. Optic Disc');
@@ -40,6 +41,7 @@ end
 
 % Use the same fovea method as EvaluateLocalization
 useLegacyFovea = true;
+visualizeCount = 5;
 
 % Initialize metrics storage with pre-allocation
 ImageID = cell(numImages, 1);
@@ -81,7 +83,7 @@ for idx = 1:numImages
     I_prep = preprocessImage(I);
     
     %% STEP 2: OPTIC DISC DETECTION & SEGMENTATION
-    [odCenter, odMask, odRadius] = detectOpticDisc(I_prep, I);
+    [odCenter, ~, odRadius] = detectOpticDisc(I_prep, I);
     
     %% STEP 3: FOVEA LOCALIZATION
     if useLegacyFovea
@@ -160,7 +162,7 @@ for idx = 1:numImages
     Fovea_Dist(idx) = fovea_dist;
     
     % Visualize
-    if idx <= 5  % Visualize first 5 images
+    if idx <= visualizeCount
         figure('Name', sprintf('%s - Result', imageID));
         
         subplot(1, 2, 1);

@@ -3,16 +3,20 @@
 clear all; close all; clc;
 
 projectPath = fileparts(mfilename('fullpath'));
+cd(projectPath);
 segTrainPath = fullfile(projectPath, 'A. Segmentation\1. Original Images\a. Training Set');
 odGTPath = fullfile(projectPath, 'A. Segmentation\2. All Segmentation Groundtruths\a. Training Set\5. Optic Disc');
 outputPath = fullfile(projectPath, 'Figures');
+imageName = 'IDRiD_01.jpg';
+thresholdPercentile = 90;
+seRadius = 15;
 
 if ~isdir(outputPath)
     mkdir(outputPath);
 end
 
 % Select first image for detailed preprocessing figure
-imgFileName = 'IDRiD_01.jpg';
+imgFileName = imageName;
 imgPath = fullfile(segTrainPath, imgFileName);
 I = imread(imgPath);
 
@@ -48,14 +52,14 @@ colormap(gca, 'gray');
 title('After Median Filter');
 
 % Thresholding
-threshold = prctile(I_prep(:), 90);
+threshold = prctile(I_prep(:), thresholdPercentile);
 BW = I_prep > threshold;
 subplot(2, 4, 5);
 imshow(BW);
 title(sprintf('Threshold (p90 = %d)', round(threshold)));
 
 % Morphological closing
-SE = strel('disk', 15);
+SE = strel('disk', seRadius);
 BW_closed = imclose(BW, SE);
 subplot(2, 4, 6);
 imshow(BW_closed);
@@ -96,6 +100,8 @@ end
 
 % Load GT
 gtPath = fullfile(odGTPath, 'IDRiD_01_OD.tif');
+odCenter_gt = [NaN NaN];
+BW_gt = [];
 if isfile(gtPath)
     BW_gt = imread(gtPath) > 0;
     props_gt = regionprops(BW_gt, 'Centroid');
@@ -118,10 +124,12 @@ title('OD Detection: Original Image');
 subplot(1, 3, 2);
 imshow(I);
 hold on;
-boundary_gt = bwboundaries(BW_gt);
-for k = 1:length(boundary_gt)
-    b = boundary_gt{k};
-    plot(b(:, 2), b(:, 1), 'g-', 'LineWidth', 2);
+if ~isempty(BW_gt)
+    boundary_gt = bwboundaries(BW_gt);
+    for k = 1:length(boundary_gt)
+        b = boundary_gt{k};
+        plot(b(:, 2), b(:, 1), 'g-', 'LineWidth', 2);
+    end
 end
 title('Ground Truth OD Mask');
 

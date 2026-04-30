@@ -2,9 +2,12 @@
 % Calculates Precision, Recall, F-score for OD segmentation
 clear all; close all; clc;
 
-projectPath = 'C:\Users\cagda\OneDrive\Desktop\Image-Processing\Project';
+projectPath = fileparts(mfilename('fullpath'));
+cd(projectPath);
 segTrainPath = fullfile(projectPath, 'A. Segmentation\1. Original Images\a. Training Set');
 odGTPath = fullfile(projectPath, 'A. Segmentation\2. All Segmentation Groundtruths\a. Training Set\5. Optic Disc');
+thresholdPercentile = 90;
+seRadius = 15;
 
 % Get list of training images
 imageList = dir(fullfile(segTrainPath, 'IDRiD_*.jpg'));
@@ -14,11 +17,11 @@ fprintf('Evaluating OD Segmentation on %d images...\n', numImages);
 
 % Initialize metrics with pre-allocation
 ImageID = cell(numImages, 1);
-Precision = zeros(numImages, 1);
-Recall = zeros(numImages, 1);
-F_Score = zeros(numImages, 1);
-Dice = zeros(numImages, 1);
-IoU = zeros(numImages, 1);
+Precision = NaN(numImages, 1);
+Recall = NaN(numImages, 1);
+F_Score = NaN(numImages, 1);
+Dice = NaN(numImages, 1);
+IoU = NaN(numImages, 1);
 
 for idx = 1:numImages
     imgFileName = imageList(idx).name;
@@ -26,6 +29,7 @@ for idx = 1:numImages
     imageID = baseName;
     
     fprintf('Processing %s (%d/%d)... ', imageID, idx, numImages);
+    ImageID{idx} = imageID;
     
     % Read original image
     imgPath = fullfile(segTrainPath, imgFileName);
@@ -37,9 +41,9 @@ for idx = 1:numImages
     I_prep = medfilt2(I_clahe, [5 5]);
     
     % Segment OD using morphological operations
-    threshold = prctile(I_prep(:), 90);
+    threshold = prctile(I_prep(:), thresholdPercentile);
     BW_pred = I_prep > threshold;
-    SE = strel('disk', 15);
+    SE = strel('disk', seRadius);
     BW_pred = imclose(BW_pred, SE);
     BW_pred = imfill(BW_pred, 'holes');
     
@@ -63,8 +67,6 @@ for idx = 1:numImages
         TP = sum(BW_pred(:) & BW_gt(:));
         FP = sum(BW_pred(:) & ~BW_gt(:));
         FN = sum(~BW_pred(:) & BW_gt(:));
-        TN = sum(~BW_pred(:) & ~BW_gt(:));
-        
         % Precision, Recall, F-score
         precision = TP / (TP + FP + eps);
         recall = TP / (TP + FN + eps);
@@ -76,7 +78,6 @@ for idx = 1:numImages
         % IoU (Intersection over Union)
         iou = TP / (TP + FP + FN + eps);
         
-        ImageID{idx} = imageID;
         Precision(idx) = precision;
         Recall(idx) = recall;
         F_Score(idx) = f_score;
@@ -90,12 +91,14 @@ for idx = 1:numImages
 end
 
 %% Summary Statistics
+valid = ~isnan(F_Score);
 fprintf('\n========== OD SEGMENTATION EVALUATION ==========\n');
-fprintf('Mean Precision: %.4f\n', mean(Precision));
-fprintf('Mean Recall:    %.4f\n', mean(Recall));
-fprintf('Mean F-Score:   %.4f\n', mean(F_Score));
-fprintf('Mean Dice:      %.4f\n', mean(Dice));
-fprintf('Mean IoU:       %.4f\n', mean(IoU));
+fprintf('\nImages with GT: %d/%d\n', sum(valid), numImages);
+fprintf('Mean Precision: %.4f\n', mean(Precision(valid)));
+fprintf('Mean Recall:    %.4f\n', mean(Recall(valid)));
+fprintf('Mean F-Score:   %.4f\n', mean(F_Score(valid)));
+fprintf('Mean Dice:      %.4f\n', mean(Dice(valid)));
+fprintf('Mean IoU:       %.4f\n', mean(IoU(valid)));
 
 % Create results table
 segResults = table(ImageID, Precision, Recall, F_Score, Dice, IoU);

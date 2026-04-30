@@ -4,8 +4,9 @@
 
 clear all; close all; clc;
 
-% --- ADIM 1: Yolları Belirle (Kendi bilgisayarına göre ayarlı) ---
-projectPath = 'C:\Users\cagda\OneDrive\Desktop\Image-Processing\Project';
+% --- ADIM 1: Yolları Belirle ---
+projectPath = fileparts(mfilename('fullpath'));
+cd(projectPath);
 locTrainPath = fullfile(projectPath, 'C. Localization\1. Original Images\a. Training Set');
 odCoordsPath = fullfile(projectPath, 'C. Localization\2. Groundtruths\1. Optic Disc Center Location\a. IDRiD_OD_Center_Training Set_Markups.csv');
 foveaCoordsPath = fullfile(projectPath, 'C. Localization\2. Groundtruths\2. Fovea Center Location\IDRiD_Fovea_Center_Training Set_Markups.csv');
@@ -82,7 +83,7 @@ fprintf('Optik Disk Ortalama Hata: %.2f piksel\n', mean(OD_Dist(~isnan(OD_Dist))
 fprintf('Fovea Ortalama Hata: %.2f piksel\n', mean(Fovea_Dist(~isnan(Fovea_Dist))));
 
 resultsTable = table(ImageID, OD_Dist, Fovea_Dist);
-writetable(resultsTable, 'final_localization_results.csv');
+writetable(resultsTable, fullfile(projectPath, 'final_localization_results.csv'));
 fprintf('Sonuçlar "final_localization_results.csv" dosyasına kaydedildi!\n');
 
 
