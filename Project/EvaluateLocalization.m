@@ -86,8 +86,7 @@ resultsTable = table(ImageID, OD_Dist, Fovea_Dist);
 writetable(resultsTable, fullfile(projectPath, 'final_localization_results.csv'));
 fprintf('Sonuçlar "final_localization_results.csv" dosyasına kaydedildi!\n');
 
-
-%% YARDIMCI FONKSİYONLAR (Son güncellediğimiz kusursuz halleri)
+%% YARDIMCI FONKSİYONLAR
 
 function I_prep = preprocessImage(I)
     I_green = I(:, :, 2);
@@ -137,59 +136,41 @@ function [odCenter, odMask, odRadius] = detectOpticDisc(I_prep, I_orig)
 end
 
 function foveaCenter = localizeFovea(I_prep, odCenter, odRadius, I_orig)
-    % 1. Orijinal yeşil kanalı alıyoruz
-    I_green = I_orig(:, :, 2);
-    [h, w] = size(I_green);
-    
-    % 2. DİKEY (Y-Ekseni) KISITLAMA
-    y_min = max(1, round(odCenter(2) - 600)); 
-    y_max = min(h, round(odCenter(2) + 600));
-    
-    % 3. YATAY (X-Ekseni) KISITLAMA: Sağ Göz / Sol Göz Tespiti
+    [h, w] = size(I_prep);
+
     if odCenter(1) < w / 2
-        x_min = min(w, round(odCenter(1) + 500)); 
-        x_max = min(w, round(odCenter(1) + 1800)); 
+        sideSign = 1;
     else
-        x_min = max(1, round(odCenter(1) - 1800)); 
-        x_max = max(1, round(odCenter(1) - 500));
+        sideSign = -1;
     end
-    
-    % Güvenlik payı
-    margin = 200;
-    x_min = max(x_min, margin);
-    x_max = min(x_max, w - margin);
-    
+
+    expectedCenterX = round(odCenter(1) + sideSign * 3.5 * odRadius);
+    expectedCenterY = round(odCenter(2) + 0.25 * odRadius);
+    roiHalfWidth = round(2.5 * odRadius);
+    roiHalfHeight = round(2.0 * odRadius);
+
+    x_min = max(1, expectedCenterX - roiHalfWidth);
+    x_max = min(w, expectedCenterX + roiHalfWidth);
+    y_min = max(1, expectedCenterY - roiHalfHeight);
+    y_max = min(h, expectedCenterY + roiHalfHeight);
+
     if x_min >= x_max || y_min >= y_max
-        foveaCenter = [w/2, h/2];
+        foveaCenter = [odCenter(1), odCenter(2)];
         return;
     end
-    
-    % 4. ARAMA BÖLGESİNİ (ROI) KES
-    searchRegion = I_green(y_min:y_max, x_min:x_max);
-    
-    % 5. HASTALIK LEKELERİNİ VE DAMARLARI ERİTME (EXTREME BLUR)
-    H = fspecial('gaussian', [250 250], 80);
-    searchRegion_blur = imfilter(searchRegion, H, 'replicate');
-    
-    % 6. KENAR GÖLGELERİNİ ÇOK DAHA AGRESİF TEMİZLEME (YENİ GÜNCELLEME)
+
+    searchRegion = I_prep(y_min:y_max, x_min:x_max);
+    searchRegion = imgaussfilt(searchRegion, 18);
+
     I_red_roi = I_orig(y_min:y_max, x_min:x_max, 1);
-    
-    % Eşik (Threshold) değerini 30'dan 45'e çıkardık. Kenarlardaki karanlık 
-    % geçişleri (gradient) tamamen dışlamak istiyoruz.
-    fovMask = I_red_roi > 45; 
-    
-    % Sınırda kalan gölgeleri içe doğru tıraşlama miktarını 30'dan 60'a çıkardık!
-    % Bu sayede arama yapacağımız alan tamamen gözün güvenli iç bölgesine hapsoldu.
-    SE_roi = strel('disk', 60);
-    fovMask = imerode(fovMask, SE_roi);
-    
-    % Maske dışında kalan (güvensiz) yerleri bembeyaz yap (255)
-    searchRegion_blur(~fovMask) = 255;
-    
-    % 7. EN KARANLIK NOKTAYI BUL 
-    [~, minIdx] = min(searchRegion_blur(:));
-    [py_local, px_local] = ind2sub(size(searchRegion_blur), minIdx);
-    
-    % 8. KOORDİNATLARI BÜYÜK RESME GÖRE DÜZELT
+    retinaMask = I_red_roi > 45;
+    retinaMask = imerode(retinaMask, strel('disk', 15));
+    if any(retinaMask(:))
+        searchRegion(~retinaMask) = max(searchRegion(:));
+    end
+
+    [~, minIdx] = min(searchRegion(:));
+    [py_local, px_local] = ind2sub(size(searchRegion), minIdx);
+
     foveaCenter = [px_local + x_min - 1, py_local + y_min - 1];
 end

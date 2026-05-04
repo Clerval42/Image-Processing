@@ -13,6 +13,9 @@ foveaCoordsPath = fullfile(projectPath, 'C. Localization\2. Groundtruths\2. Fove
 
 % Choose which images to use for localization evaluation
 useLocalizationImages = true;
+if exist('USE_LOCALIZATION_IMAGES', 'var')
+    useLocalizationImages = logical(USE_LOCALIZATION_IMAGES);
+end
 if useLocalizationImages
     imageRoot = locTrainPath;
 else
@@ -40,7 +43,10 @@ else
 end
 
 % Use the same fovea method as EvaluateLocalization
-useLegacyFovea = true;
+useLegacyFovea = false;
+if exist('USE_LEGACY_FOVEA', 'var')
+    useLegacyFovea = logical(USE_LEGACY_FOVEA);
+end
 visualizeCount = 5;
 
 % Initialize metrics storage with pre-allocation
@@ -89,7 +95,7 @@ for idx = 1:numImages
     if useLegacyFovea
         foveaCenter = localizeFovea(I_prep, odCenter, odRadius, I);
     else
-        foveaCenter = localizeFovea_Improved(I_prep, odCenter, odRadius);
+        foveaCenter = localizeFovea_Improved(I_prep, odCenter, odRadius, I);
     end
     
     %% STEP 4: LOAD GROUND TRUTH
@@ -234,7 +240,6 @@ function I_prep = preprocessImage(I)
 end
 
 %% Function: Detect Optic Disc
-% --- GÜNCELLENMİŞ OPTİK DİSK TESPİTİ ---
 function [odCenter, odMask, odRadius] = detectOpticDisc(I_prep, I_orig)
     % Adım 1: Kırmızı kanalı al (Optik disk kırmızı kanalda daha belirgindir)
     I_red = I_orig(:, :, 1);
@@ -293,91 +298,88 @@ function [odCenter, odMask, odRadius] = detectOpticDisc(I_prep, I_orig)
 end
 
 %% Function: Localize Fovea (legacy)
-function foveaCenter = localizeFovea(~, odCenter, ~, I_orig)
-    I_green = I_orig(:, :, 2);
-    [h, w] = size(I_green);
-    
-    y_min = max(1, round(odCenter(2) - 600));
-    y_max = min(h, round(odCenter(2) + 600));
-    
+function foveaCenter = localizeFovea(I_prep, odCenter, odRadius, I_orig)
+    [h, w] = size(I_prep);
+
     if odCenter(1) < w / 2
-        x_min = min(w, round(odCenter(1) + 500));
-        x_max = min(w, round(odCenter(1) + 1800));
+        sideSign = 1;
     else
-        x_min = max(1, round(odCenter(1) - 1800));
-        x_max = max(1, round(odCenter(1) - 500));
+        sideSign = -1;
     end
-    
-    margin = 200;
-    x_min = max(x_min, margin);
-    x_max = min(x_max, w - margin);
-    
+
+    expectedCenterX = round(odCenter(1) + sideSign * 3.5 * odRadius);
+    expectedCenterY = round(odCenter(2) + 0.25 * odRadius);
+    roiHalfWidth = round(2.5 * odRadius);
+    roiHalfHeight = round(2.0 * odRadius);
+
+    x_min = max(1, expectedCenterX - roiHalfWidth);
+    x_max = min(w, expectedCenterX + roiHalfWidth);
+    y_min = max(1, expectedCenterY - roiHalfHeight);
+    y_max = min(h, expectedCenterY + roiHalfHeight);
+
     if x_min >= x_max || y_min >= y_max
-        foveaCenter = [w/2, h/2];
+        foveaCenter = [odCenter(1), odCenter(2)];
         return;
     end
-    
-    searchRegion = I_green(y_min:y_max, x_min:x_max);
-    
-    H = fspecial('gaussian', [250 250], 80);
-    searchRegion_blur = imfilter(searchRegion, H, 'replicate');
-    
+
+    searchRegion = I_prep(y_min:y_max, x_min:x_max);
+    searchRegion = imgaussfilt(searchRegion, 18);
+
     I_red_roi = I_orig(y_min:y_max, x_min:x_max, 1);
-    fovMask = I_red_roi > 45;
-    
-    SE_roi = strel('disk', 60);
-    fovMask = imerode(fovMask, SE_roi);
-    
-    searchRegion_blur(~fovMask) = 255;
-    
-    [~, minIdx] = min(searchRegion_blur(:));
-    [py_local, px_local] = ind2sub(size(searchRegion_blur), minIdx);
-    
+    retinaMask = I_red_roi > 45;
+    retinaMask = imerode(retinaMask, strel('disk', 15));
+    if any(retinaMask(:))
+        searchRegion(~retinaMask) = max(searchRegion(:));
+    end
+
+    [~, minIdx] = min(searchRegion(:));
+    [py_local, px_local] = ind2sub(size(searchRegion), minIdx);
+
     foveaCenter = [px_local + x_min - 1, py_local + y_min - 1];
 end
 
-%% Function: Localize Fovea
-function foveaCenter = localizeFovea_Improved(I_prep, odCenter, odRadius)
-    % Improved fovea localization with better anatomical constraints
-    
+%% Function: Localize Fovea (Improved)
+function foveaCenter = localizeFovea_Improved(I_prep, odCenter, odRadius, I_orig)
     [h, w] = size(I_prep);
-    
-    % Fovea location properties:
-    % 1. Located roughly 2.5-3 OD diameters from OD center (usually temporal/nasal)
-    % 2. On the main blood vessel-free zone
-    % 3. Usually below (higher Y) the OD center
-    
-    % Create search region ROI:
-    % Search within a limited annulus around the OD
-    minSearchDist = odRadius * 1.5;  % At least 1.5 disc diameters away
-    maxSearchDist = odRadius * 3.5;  % No more than 3.5 disc diameters away
-    
-    % Create mask for search region
-    [X, Y] = meshgrid(1:w, 1:h);
-    distFromOD = sqrt((X - odCenter(1)).^2 + (Y - odCenter(2)).^2);
-    
-    searchMask = (distFromOD >= minSearchDist) & (distFromOD <= maxSearchDist);
-    
-    % Apply search region
-    searchRegion = I_prep;
-    searchRegion(~searchMask) = max(I_prep(:));  % Mask out non-search regions (set to bright)
-    
-    % Find darkest point in search region
-    [minVal, minIdx] = min(searchRegion(:));
-    [py, px] = ind2sub(size(searchRegion), minIdx);
-    
-    foveaCenter = [px, py];
-    
-    % Validate: if fovea is too close to OD, expand search
-    foveaDist = sqrt((foveaCenter(1) - odCenter(1))^2 + (foveaCenter(2) - odCenter(2))^2);
-    if foveaDist < odRadius * 1.2
-        % Too close, search again with different strategy
-        % Look in bottom-right quadrant preferentially
-        bottomRightMask = (X > odCenter(1)) & (Y > odCenter(2)) & searchMask;
-        searchRegion2 = I_prep;
-        searchRegion2(~bottomRightMask) = max(I_prep(:));
-        [~, minIdx2] = min(searchRegion2(:));
-        [py2, px2] = ind2sub(size(searchRegion2), minIdx2);
-        foveaCenter = [px2, py2];
+
+    if nargin < 4 || isempty(I_orig)
+        I_orig = cat(3, I_prep, I_prep, I_prep);
     end
+
+    if odCenter(1) < w / 2
+        sideSign = 1;
+    else
+        sideSign = -1;
+    end
+
+    expectedCenterX = round(odCenter(1) + sideSign * 3.5 * odRadius);
+    expectedCenterY = round(odCenter(2) + 0.25 * odRadius);
+    roiHalfWidth = round(2.5 * odRadius);
+    roiHalfHeight = round(2.0 * odRadius);
+
+    x_min = max(1, expectedCenterX - roiHalfWidth);
+    x_max = min(w, expectedCenterX + roiHalfWidth);
+    y_min = max(1, expectedCenterY - roiHalfHeight);
+    y_max = min(h, expectedCenterY + roiHalfHeight);
+
+    if x_min >= x_max || y_min >= y_max
+        foveaCenter = [odCenter(1), odCenter(2)];
+        return;
+    end
+
+    searchRegion = I_prep(y_min:y_max, x_min:x_max);
+    searchRegion = imgaussfilt(searchRegion, 18);
+
+    I_red_roi = I_orig(y_min:y_max, x_min:x_max, 1);
+    retinaMask = I_red_roi > 45;
+    retinaMask = imerode(retinaMask, strel('disk', 15));
+    if any(retinaMask(:))
+        searchRegion(~retinaMask) = max(searchRegion(:));
+    end
+
+    [~, minIdx] = min(searchRegion(:));
+    [py_local, px_local] = ind2sub(size(searchRegion), minIdx);
+
+    foveaCenter = [px_local + x_min - 1, py_local + y_min - 1];
 end
+
