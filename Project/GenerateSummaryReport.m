@@ -71,10 +71,3 @@ fprintf('  Fovea Error: %.2f ± %.2f px\n', mean(fovea_dists), std(fovea_dists))
 fprintf('\nSegmentation Performance:\n');
 fprintf('  F-Score:     %.4f\n', avgFScore);
 fprintf('  Dice Index:  %.4f\n', avgDice);
-
-fprintf('\n========================================\n');
-fprintf('\nNext steps:\n');
-fprintf('1. Review Figures/ directory for visualization\n');
-fprintf('2. Update BIM472_Template.doc with results\n');
-fprintf('3. Include figures and tables in report\n');
-fprintf('4. Create PowerPoint presentation\n');
