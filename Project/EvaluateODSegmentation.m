@@ -6,11 +6,13 @@ projectPath = fileparts(mfilename('fullpath'));
 cd(projectPath);
 segTrainPath = fullfile(projectPath, 'A. Segmentation\1. Original Images\a. Training Set');
 odGTPath = fullfile(projectPath, 'A. Segmentation\2. All Segmentation Groundtruths\a. Training Set\5. Optic Disc');
+segTestPath = fullfile(projectPath, 'A. Segmentation\1. Original Images\b. Testing Set');
+odGTTestPath = fullfile(projectPath, 'A. Segmentation\2. All Segmentation Groundtruths\b. Testing Set\5. Optic Disc');
 thresholdPercentile = 90;
 seRadius = 15;
 
-% Get list of training images
-imageList = dir(fullfile(segTrainPath, 'IDRiD_*.jpg'));
+% Get list of training and testing images
+imageList = [dir(fullfile(segTrainPath, 'IDRiD_*.jpg')); dir(fullfile(segTestPath, 'IDRiD_*.jpg'))];
 numImages = length(imageList);
 
 fprintf('Evaluating OD Segmentation on %d images...\n', numImages);
@@ -32,7 +34,7 @@ for idx = 1:numImages
     ImageID{idx} = imageID;
     
     % Read original image
-    imgPath = fullfile(segTrainPath, imgFileName);
+    imgPath = fullfile(imageList(idx).folder, imgFileName);
     I = imread(imgPath);
     
     % Preprocess
@@ -57,7 +59,11 @@ for idx = 1:numImages
     
     % Load ground truth
     gtFileName = [imageID '_OD.tif'];
-    gtPath = fullfile(odGTPath, gtFileName);
+    if contains(imageList(idx).folder, 'b. Testing Set')
+        gtPath = fullfile(odGTTestPath, gtFileName);
+    else
+        gtPath = fullfile(odGTPath, gtFileName);
+    end
     
     if isfile(gtPath)
         BW_gt = imread(gtPath);

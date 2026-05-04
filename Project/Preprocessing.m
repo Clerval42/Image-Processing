@@ -6,10 +6,14 @@ clear all; close all; clc;
 projectPath = fileparts(mfilename('fullpath'));
 cd(projectPath);
 segTrainPath = fullfile(projectPath, 'A. Segmentation\1. Original Images\a. Training Set');
+segTestPath = fullfile(projectPath, 'A. Segmentation\1. Original Images\b. Testing Set');
 locTrainPath = fullfile(projectPath, 'C. Localization\1. Original Images\a. Training Set');
 odGTPath = fullfile(projectPath, 'A. Segmentation\2. All Segmentation Groundtruths\a. Training Set\5. Optic Disc');
+odGTTestPath = fullfile(projectPath, 'A. Segmentation\2. All Segmentation Groundtruths\b. Testing Set\5. Optic Disc');
 odCoordsPath = fullfile(projectPath, 'C. Localization\2. Groundtruths\1. Optic Disc Center Location\a. IDRiD_OD_Center_Training Set_Markups.csv');
+odCoordsTestPath = fullfile(projectPath, 'C. Localization\2. Groundtruths\1. Optic Disc Center Location\b. IDRiD_OD_Center_Testing Set_Markups.csv');
 foveaCoordsPath = fullfile(projectPath, 'C. Localization\2. Groundtruths\2. Fovea Center Location\IDRiD_Fovea_Center_Training Set_Markups.csv');
+foveaCoordsTestPath = fullfile(projectPath, 'C. Localization\2. Groundtruths\2. Fovea Center Location\IDRiD_Fovea_Center_Testing Set_Markups.csv');
 
 % Choose which images to use for localization evaluation
 useLocalizationImages = true;
@@ -19,7 +23,7 @@ end
 if useLocalizationImages
     imageRoot = locTrainPath;
 else
-    imageRoot = segTrainPath;
+    imageRoot = '';
 end
 useSegmentationGT = ~useLocalizationImages;
 
@@ -27,13 +31,19 @@ useSegmentationGT = ~useLocalizationImages;
 fprintf('Reading ground truth coordinates...\n');
 odCoords = readtable(odCoordsPath, 'VariableNamingRule', 'preserve');
 foveaCoords = readtable(foveaCoordsPath, 'VariableNamingRule', 'preserve');
+odCoordsTest = readtable(odCoordsTestPath, 'VariableNamingRule', 'preserve');
+foveaCoordsTest = readtable(foveaCoordsTestPath, 'VariableNamingRule', 'preserve');
 
 % Keep only the first 3 columns (Image No, X, Y)
 odCoords = odCoords(:, 1:3);
 foveaCoords = foveaCoords(:, 1:3);
 
 % Get list of images
-imageList = dir(fullfile(imageRoot, 'IDRiD_*.jpg'));
+if useLocalizationImages
+    imageList = dir(fullfile(imageRoot, 'IDRiD_*.jpg'));
+else
+    imageList = [dir(fullfile(segTrainPath, 'IDRiD_*.jpg')); dir(fullfile(segTestPath, 'IDRiD_*.jpg'))];
+end
 numImages = length(imageList);
 
 if useLocalizationImages
@@ -82,7 +92,7 @@ for idx = 1:numImages
     fprintf('\n--- Processing %s (%d/%d) ---\n', imageID, idx, numImages);
     
     % Read original image
-    imgPath = fullfile(imageRoot, imgFileName);
+    imgPath = fullfile(imageList(idx).folder, imgFileName);
     I = imread(imgPath);
     
     %% STEP 1: PREPROCESSING
@@ -102,9 +112,16 @@ for idx = 1:numImages
     od_gt_x = NaN;
     od_gt_y = NaN;
     if useSegmentationGT
+        isSegTestImage = contains(imageList(idx).folder, 'b. Testing Set');
+        if isSegTestImage
+            gtSearchPath = odGTTestPath;
+        else
+            gtSearchPath = odGTPath;
+        end
+
         % Optik disk maskesinin (TIF dosyası) ismini oluştur (Örn: IDRiD_01_OD.tif)
         gtFileName = sprintf('%s_OD.tif', imageID); 
-        gtPath = fullfile(odGTPath, gtFileName);
+        gtPath = fullfile(gtSearchPath, gtFileName);
         
         % Eğer klasörde böyle bir maske dosyası varsa işlemlere başla
         if isfile(gtPath)
@@ -124,7 +141,11 @@ for idx = 1:numImages
     
     % Segmentasyon maskesi yoksa OD merkezini CSV'den yedekle
     if isnan(od_gt_x) || isnan(od_gt_y)
-        odRow = odCoords(strcmp(odCoords{:, 1}, imageID_Loc), :);
+        if contains(imageList(idx).folder, 'b. Testing Set')
+            odRow = odCoordsTest(strcmp(odCoordsTest{:, 1}, imageID_Loc), :);
+        else
+            odRow = odCoords(strcmp(odCoords{:, 1}, imageID_Loc), :);
+        end
         if ~isempty(odRow)
             od_gt_x = odRow{1, 2};
             od_gt_y = odRow{1, 3};
@@ -132,7 +153,11 @@ for idx = 1:numImages
     end
 
     % Fovea ground truth koordinatlarını lokalizasyon CSV'den al
-    foveaRow = foveaCoords(strcmp(foveaCoords{:, 1}, imageID_Loc), :);
+    if contains(imageList(idx).folder, 'b. Testing Set')
+        foveaRow = foveaCoordsTest(strcmp(foveaCoordsTest{:, 1}, imageID_Loc), :);
+    else
+        foveaRow = foveaCoords(strcmp(foveaCoords{:, 1}, imageID_Loc), :);
+    end
     if ~isempty(foveaRow)
         fovea_gt_x = foveaRow{1, 2};
         fovea_gt_y = foveaRow{1, 3};
