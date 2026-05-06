@@ -4,6 +4,8 @@
 
 Purpose: Fill small holes (pepper noise) and connect nearby objects.
 
+- **Otsu (brief):** Before closing, Otsu thresholding creates the binary foreground/background mask by maximizing inter-class variance.
+
 - **Dilation:** Replace each pixel with the maximum value in its 3×3 neighborhood. This expands foreground (white) regions, filling small black holes and bridging nearby objects.
 - **Erosion:** After dilation, replace each pixel with the minimum value in its 3×3 neighborhood. This restores object size by shrinking regions, while preserving bridges created during dilation.
 - **Why the order matters:** If erosion is applied first, small objects or thin structures can be removed. Dilation first creates connections across small gaps; erosion then returns objects close to their original sizes while keeping those connections, effectively removing small holes without losing connectivity.
