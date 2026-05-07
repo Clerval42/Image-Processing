@@ -198,5 +198,6 @@ fprintf('   - Dilation expands foreground regions (salt noise removed)\n');
 fprintf('   - Erosion restores object size while keeping gaps closed\n');
 
 % Save the main figure
-saveas(gcf, 'Part1_Results.png');
-fprintf('\nVisualization saved as ''Part1_Results.png''\n');
+save_folder = fullfile('hw3', 'Part1_Results.png');
+saveas(gcf, save_folder);
+fprintf('\nVisualization saved as ''%s''\n', save_folder);

@@ -233,7 +233,8 @@ fprintf('   - NN preserves more edge information but creates artifacts\n');
 fprintf('   - Edge Energy Ratio (NN/Bilinear): %.4f\n', edge_energy_nn / edge_energy_builtin);
 
 % Save the main figure
-saveas(gcf, 'Part2_Results.png');
-fprintf('\nVisualization saved as ''Part2_Results.png''\n');
+save_folder = fullfile('hw3', 'Part2_Results.png');
+saveas(gcf, save_folder);
+fprintf('\nVisualization saved as ''%s''\n', save_folder);
 
 fprintf('\n=== PART 2 COMPLETE ===\n');
